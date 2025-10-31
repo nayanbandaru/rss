@@ -51,6 +51,7 @@ def run_once():
                 max_seen = created
 
             title = getattr(post, "title", "") or ""
+            print(title)
             body = getattr(post, "selftext", "") or ""
             if not (key_re.search(title) or key_re.search(body)):
                 continue
@@ -99,6 +100,7 @@ def run_once():
             session.add(chk)
         else:
             chk.last_seen_created_utc = max_seen
+            print(max_seen)
         session.commit()
 
     session.close()
