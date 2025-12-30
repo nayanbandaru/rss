@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reddit Alert Monitor</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>📢 Reddit Alert Monitor</h1>
+            <p class="subtitle">Get email notifications when keywords appear in subreddit posts</p>
+        </header>
+
+        <!-- Message Container for Alerts/Errors -->
+        <div id="message-container"></div>
+
+        <!-- Create Alert Section -->
+        <section class="card">
+            <h2>Create New Alert</h2>
+            <p class="section-description">Enter your email and specify what to watch for</p>
+            <form id="create-alert-form">
+                <div class="form-group">
+                    <label for="create-email">Email Address</label>
+                    <input
+                        type="email"
+                        id="create-email"
+                        name="email"
+                        required
+                        placeholder="your@email.com"
+                        autocomplete="email">
+                </div>
+                <div class="form-group">
+                    <label for="create-subreddit">Subreddit</label>
+                    <input
+                        type="text"
+                        id="create-subreddit"
+                        name="subreddit"
+                        required
+                        placeholder="e.g., watchexchange (with or without r/)"
+                        autocomplete="off">
+                    <small class="help-text">Enter subreddit name with or without the "r/" prefix</small>
+                </div>
+                <div class="form-group">
+                    <label for="create-keyword">Keyword</label>
+                    <input
+                        type="text"
+                        id="create-keyword"
+                        name="keyword"
+                        required
+                        placeholder="e.g., Seiko SARB"
+                        autocomplete="off">
+                    <small class="help-text">Case-insensitive search in post titles and bodies</small>
+                </div>
+                <button type="submit" class="btn btn-primary">Create Alert</button>
+            </form>
+        </section>
+
+        <!-- View Alerts Section -->
+        <section class="card">
+            <h2>Manage Your Alerts</h2>
+            <p class="section-description">View and delete your existing alerts</p>
+            <form id="view-alerts-form">
+                <div class="form-group">
+                    <label for="view-email">Email Address</label>
+                    <input
+                        type="email"
+                        id="view-email"
+                        name="email"
+                        required
+                        placeholder="your@email.com"
+                        autocomplete="email">
+                </div>
+                <button type="submit" class="btn btn-secondary">Load My Alerts</button>
+            </form>
+
+            <!-- Alerts List (Hidden by default) -->
+            <div id="alerts-container" class="alerts-list" style="display: none;">
+                <h3>Your Active Alerts (<span id="alert-count">0</span>)</h3>
+                <div id="alerts-list"></div>
+            </div>
+        </section>
+
+        <!-- Footer -->
+        <footer>
+            <p>Powered by <a href="https://fastapi.tiangolo.com/" target="_blank">FastAPI</a> |
+               <a href="/docs" target="_blank">API Docs</a></p>
+        </footer>
+    </div>
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html>
