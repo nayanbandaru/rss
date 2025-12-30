@@ -26,6 +26,11 @@ Thumbs.db
 logs/
 watcher.log
 
+# Test coverage
+.coverage
+htmlcov/
+.pytest_cache/
+
 # Editor & IDE settings
 .vscode/
 .idea/
