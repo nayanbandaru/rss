@@ -321,7 +321,11 @@ python poller.py
 | `MAX_RETRIES` | API retry attempts | `3` | No |
 | `RETRY_DELAY` | Initial retry delay (seconds) | `5` | No |
 | `RATE_LIMIT_REQUESTS` | Requests per minute per IP | `20` | No |
-| `ENABLE_AUTH` | Enable JWT authentication | `false` | No |
+| `JWT_SECRET_KEY` | Secret key for JWT tokens | - | **Yes (prod)** |
+| `JWT_EXPIRATION_MINUTES` | Token expiration time | `1440` (24h) | No |
+| `CORS_ORIGINS` | Allowed origins (comma-separated) | `localhost` | No |
+| `PASSWORD_RESET_BASE_URL` | Base URL for reset links | `http://localhost:8000` | No |
+| `ENVIRONMENT` | Set to `production` for strict mode | `development` | No |
 
 ### Database Migration
 
@@ -338,6 +342,114 @@ python poller.py
    ```
 
 3. Database will auto-initialize on first run
+
+## Production Deployment
+
+### Deployment Checklist
+
+Before deploying to production, complete the following:
+
+- [ ] Generate a secure JWT secret key
+- [ ] Configure all environment variables
+- [ ] Run database migrations
+- [ ] Set up HTTPS with SSL certificate
+- [ ] Configure proper CORS origins
+- [ ] Test authentication flow end-to-end
+- [ ] Set up database backups
+- [ ] Configure log rotation
+
+### Step-by-Step Deployment
+
+**1. Generate Secure JWT Secret**
+```bash
+# Generate a 256-bit secret key
+openssl rand -hex 32
+```
+
+**2. Create Production Environment File**
+```bash
+# .env (production)
+ENVIRONMENT=production
+DATABASE_URL=postgresql://user:password@localhost:5432/reddit_alerts
+
+# REQUIRED in production
+JWT_SECRET_KEY=<your-generated-secret-key>
+
+# Your production domain
+CORS_ORIGINS=https://yourdomain.com
+PASSWORD_RESET_BASE_URL=https://yourdomain.com
+
+# Reddit & Email credentials
+REDDIT_CLIENT_ID=your_client_id
+REDDIT_CLIENT_SECRET=your_client_secret
+REDDIT_USER_AGENT=watcher-backend/1.0 by u/yourusername
+GMAIL_FROM=your-email@gmail.com
+GMAIL_APP_PASSWORD=your_app_password
+```
+
+**3. Run Database Migration**
+```bash
+# For existing databases, add authentication columns
+python migrate_auth.py
+```
+
+**4. Set Up Reverse Proxy (nginx)**
+
+Example nginx configuration:
+```nginx
+server {
+    listen 80;
+    server_name yourdomain.com;
+    return 301 https://$server_name$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name yourdomain.com;
+
+    ssl_certificate /etc/letsencrypt/live/yourdomain.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/yourdomain.com/privkey.pem;
+
+    location / {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+**5. Run with Production Server**
+```bash
+# Using gunicorn with uvicorn workers
+pip install gunicorn
+gunicorn app.main:app -w 4 -k uvicorn.workers.UvicornWorker -b 0.0.0.0:8000
+
+# Or use systemd service for auto-restart
+```
+
+**6. Set Up Cron for Poller**
+```bash
+# Edit crontab
+crontab -e
+
+# Run poller every 15 minutes
+*/15 * * * * cd /path/to/rss && /path/to/venv/bin/python poller.py >> /var/log/reddit-poller.log 2>&1
+```
+
+### Rate Limits
+
+Authentication endpoints have additional rate limits to prevent brute force attacks:
+
+| Endpoint | Rate Limit |
+|----------|------------|
+| `/api/v1/auth/login` | 5/minute |
+| `/api/v1/auth/register` | 3/minute |
+| `/api/v1/auth/forgot-password` | 3/minute |
+| `/api/v1/auth/setup-password` | 3/minute |
+| `/api/v1/auth/reset-password` | 5/minute |
+| All other endpoints | 20/minute |
 
 ## Security
 

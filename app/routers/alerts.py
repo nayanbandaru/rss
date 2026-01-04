@@ -1,7 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 
-from app.dependencies import get_db, validate_email_param
+from app.dependencies import get_db, get_current_user
 from app.models.requests import AlertCreateRequest
 from app.models.responses import (
     AlertResponse,
@@ -10,6 +10,7 @@ from app.models.responses import (
     AlertDeleteResponse
 )
 from app.services.alert_service import AlertService
+from db import User
 
 router = APIRouter(prefix="/alerts", tags=["alerts"])
 
@@ -20,24 +21,26 @@ router = APIRouter(prefix="/alerts", tags=["alerts"])
              summary="Create a new alert")
 async def create_alert(
     request: AlertCreateRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """
     Create a new alert for monitoring Reddit posts.
 
-    - **email**: User's email address (auto-creates user if new)
+    **Requires authentication** - include JWT token in Authorization header.
+
     - **subreddit**: Subreddit to monitor (e.g., "watchexchange" or "r/watchexchange")
     - **keyword**: Keyword to search for in posts (case-insensitive)
 
     Returns the created alert with a unique ID.
 
     Raises:
-    - 400: Invalid email format
+    - 401: Not authenticated
     - 409: Alert already exists for this subreddit and keyword
     """
     alert = AlertService.create_alert(
         db=db,
-        email=request.email,
+        email=current_user.email,
         subreddit=request.subreddit,
         keyword=request.keyword
     )
@@ -52,28 +55,23 @@ async def create_alert(
             response_model=AlertListResponse,
             summary="List user's alerts")
 async def list_alerts(
-    email: str = Query(..., description="User email address"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """
-    Get all alerts for a specific user email.
+    Get all alerts for the authenticated user.
 
-    - **email**: User's email address
+    **Requires authentication** - include JWT token in Authorization header.
 
     Returns a list of alerts with their details.
-    Returns an empty list if the user has no alerts or doesn't exist.
 
     Raises:
-    - 400: Invalid email format
+    - 401: Not authenticated
     """
-    # Validate email format
-    email = validate_email_param(email)
-
-    # Get alerts
-    alerts = AlertService.list_user_alerts(db, email)
+    alerts = AlertService.list_user_alerts(db, current_user.email)
 
     return AlertListResponse(
-        email=email,
+        email=current_user.email,
         alerts=[AlertResponse.model_validate(a) for a in alerts],
         count=len(alerts)
     )
@@ -84,23 +82,24 @@ async def list_alerts(
                summary="Delete an alert")
 async def delete_alert(
     alert_id: str,
-    email: str = Query(..., description="User email for ownership verification"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """
     Delete a specific alert by ID.
 
+    **Requires authentication** - include JWT token in Authorization header.
+
     - **alert_id**: UUID of the alert to delete
-    - **email**: User email for ownership verification
 
     Returns success message if deleted.
 
     Raises:
-    - 400: Invalid email format
+    - 401: Not authenticated
     - 403: User doesn't own this alert
     - 404: Alert not found
     """
-    deleted_alert = AlertService.delete_alert(db, alert_id, email)
+    deleted_alert = AlertService.delete_alert(db, alert_id, current_user.email)
 
     return AlertDeleteResponse(
         message="Alert deleted successfully",

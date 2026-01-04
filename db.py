@@ -24,6 +24,23 @@ class User(Base):
     __tablename__ = "users"
     id = Column(String, primary_key=True)         # uuid-like string (we'll just use email as id for MVP)
     email = Column(String, unique=True, nullable=False)
+    password_hash = Column(String, nullable=True)  # Nullable for existing users without password
+    is_verified = Column(Boolean, default=False, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+# Password Reset Token Model
+class PasswordResetToken(Base):
+    __tablename__ = "password_reset_tokens"
+    id = Column(String, primary_key=True)
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    token = Column(String, unique=True, nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    used = Column(Boolean, default=False, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    user = relationship("User")
+
 
 # Alert DB Model
 class Alert(Base):
