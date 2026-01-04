@@ -1,10 +1,13 @@
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 
 class AlertCreateRequest(BaseModel):
-    """Request schema for creating a new alert"""
+    """
+    Request schema for creating a new alert.
 
-    email: EmailStr = Field(..., description="User email address")
+    Note: Email is not included - it comes from the authenticated user's JWT token.
+    """
+
     subreddit: str = Field(
         ...,
         min_length=1,
@@ -33,7 +36,6 @@ class AlertCreateRequest(BaseModel):
     model_config = {
         "json_schema_extra": {
             "example": {
-                "email": "user@example.com",
                 "subreddit": "watchexchange",
                 "keyword": "Seiko SARB"
             }

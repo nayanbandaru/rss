@@ -5,42 +5,53 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Reddit Alert Monitor</title>
     <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/choices.js@10.2.0/public/assets/styles/choices.min.css">
 </head>
 <body>
     <div class="container">
         <header>
-            <h1>📢 Reddit Alert Monitor</h1>
+            <h1>Reddit Alert Monitor</h1>
             <p class="subtitle">Get email notifications when keywords appear in subreddit posts</p>
+            <!-- User Info Bar (shown when logged in) -->
+            <div id="user-bar" class="user-bar" style="display: none;">
+                <span id="user-email"></span>
+                <button class="btn btn-sm btn-secondary" onclick="handleLogout()">Logout</button>
+            </div>
+            <!-- Login Prompt (shown when not logged in) -->
+            <div id="auth-prompt" class="auth-prompt">
+                <button class="btn btn-primary" onclick="showAuthModal('login')">Login</button>
+                <button class="btn btn-secondary" onclick="showAuthModal('register')">Register</button>
+            </div>
         </header>
 
         <!-- Message Container for Alerts/Errors -->
         <div id="message-container"></div>
 
-        <!-- Create Alert Section -->
-        <section class="card">
+        <!-- Auth Required Notice (shown when not logged in) -->
+        <section id="auth-required-notice" class="card auth-required">
+            <h2>Authentication Required</h2>
+            <p class="section-description">Please login or register to create and manage your alerts.</p>
+            <div class="auth-buttons">
+                <button class="btn btn-primary" onclick="showAuthModal('login')">Login</button>
+                <button class="btn btn-secondary" onclick="showAuthModal('register')">Register</button>
+            </div>
+        </section>
+
+        <!-- Create Alert Section (hidden until logged in) -->
+        <section id="create-alert-section" class="card" style="display: none;">
             <h2>Create New Alert</h2>
-            <p class="section-description">Enter your email and specify what to watch for</p>
+            <p class="section-description">Specify what to watch for - alerts will be sent to your email</p>
             <form id="create-alert-form">
                 <div class="form-group">
-                    <label for="create-email">Email Address</label>
-                    <input
-                        type="email"
-                        id="create-email"
-                        name="email"
-                        required
-                        placeholder="your@email.com"
-                        autocomplete="email">
-                </div>
-                <div class="form-group">
                     <label for="create-subreddit">Subreddit</label>
-                    <input
-                        type="text"
+                    <select
                         id="create-subreddit"
                         name="subreddit"
                         required
-                        placeholder="e.g., watchexchange (with or without r/)"
-                        autocomplete="off">
-                    <small class="help-text">Enter subreddit name with or without the "r/" prefix</small>
+                        placeholder="Type to search or enter custom subreddit...">
+                        <option value="">Select or type a subreddit...</option>
+                    </select>
+                    <small class="help-text">Select from popular buy/sell subreddits or type your own</small>
                 </div>
                 <div class="form-group">
                     <label for="create-keyword">Keyword</label>
@@ -57,27 +68,15 @@
             </form>
         </section>
 
-        <!-- View Alerts Section -->
-        <section class="card">
-            <h2>Manage Your Alerts</h2>
-            <p class="section-description">View and delete your existing alerts</p>
-            <form id="view-alerts-form">
-                <div class="form-group">
-                    <label for="view-email">Email Address</label>
-                    <input
-                        type="email"
-                        id="view-email"
-                        name="email"
-                        required
-                        placeholder="your@email.com"
-                        autocomplete="email">
-                </div>
-                <button type="submit" class="btn btn-secondary">Load My Alerts</button>
-            </form>
+        <!-- View Alerts Section (hidden until logged in) -->
+        <section id="view-alerts-section" class="card" style="display: none;">
+            <h2>Your Alerts</h2>
+            <p class="section-description">View and manage your existing alerts</p>
 
-            <!-- Alerts List (Hidden by default) -->
-            <div id="alerts-container" class="alerts-list" style="display: none;">
-                <h3>Your Active Alerts (<span id="alert-count">0</span>)</h3>
+            <!-- Alerts List -->
+            <div id="alerts-container" class="alerts-list">
+                <div class="loading-spinner" id="alerts-loading">Loading your alerts...</div>
+                <h3>Active Alerts (<span id="alert-count">0</span>)</h3>
                 <div id="alerts-list"></div>
             </div>
         </section>
@@ -89,6 +88,83 @@
         </footer>
     </div>
 
+    <!-- Auth Modal -->
+    <div id="auth-modal" class="modal" style="display: none;">
+        <div class="modal-overlay" onclick="hideAuthModal()"></div>
+        <div class="modal-content">
+            <button class="modal-close" onclick="hideAuthModal()">&times;</button>
+
+            <!-- Modal Tabs -->
+            <div class="modal-tabs">
+                <button class="modal-tab active" data-tab="login" onclick="switchAuthTab('login')">Login</button>
+                <button class="modal-tab" data-tab="register" onclick="switchAuthTab('register')">Register</button>
+            </div>
+
+            <!-- Login Form -->
+            <form id="login-form" class="auth-form">
+                <h3>Welcome Back</h3>
+                <div class="form-group">
+                    <label for="login-email">Email</label>
+                    <input type="email" id="login-email" name="email" required placeholder="your@email.com" autocomplete="email">
+                </div>
+                <div class="form-group">
+                    <label for="login-password">Password</label>
+                    <input type="password" id="login-password" name="password" required placeholder="Enter your password" autocomplete="current-password">
+                </div>
+                <button type="submit" class="btn btn-primary btn-full">Login</button>
+                <p class="auth-link">
+                    <a href="#" onclick="switchAuthTab('forgot-password'); return false;">Forgot password?</a>
+                </p>
+            </form>
+
+            <!-- Register Form -->
+            <form id="register-form" class="auth-form" style="display: none;">
+                <h3>Create Account</h3>
+                <div class="form-group">
+                    <label for="register-email">Email</label>
+                    <input type="email" id="register-email" name="email" required placeholder="your@email.com" autocomplete="email">
+                </div>
+                <div class="form-group">
+                    <label for="register-password">Password</label>
+                    <input type="password" id="register-password" name="password" required placeholder="Create a password" autocomplete="new-password">
+                    <small class="help-text">Min 8 characters, must include uppercase, lowercase, and a number</small>
+                </div>
+                <button type="submit" class="btn btn-primary btn-full">Register</button>
+            </form>
+
+            <!-- Setup Password Form (for existing users without password) -->
+            <form id="setup-password-form" class="auth-form" style="display: none;">
+                <h3>Set Up Password</h3>
+                <p class="form-description">Your account exists but needs a password. Please create one to continue.</p>
+                <div class="form-group">
+                    <label for="setup-email">Email</label>
+                    <input type="email" id="setup-email" name="email" required placeholder="your@email.com" autocomplete="email">
+                </div>
+                <div class="form-group">
+                    <label for="setup-password">New Password</label>
+                    <input type="password" id="setup-password" name="password" required placeholder="Create a password" autocomplete="new-password">
+                    <small class="help-text">Min 8 characters, must include uppercase, lowercase, and a number</small>
+                </div>
+                <button type="submit" class="btn btn-primary btn-full">Set Password</button>
+            </form>
+
+            <!-- Forgot Password Form -->
+            <form id="forgot-password-form" class="auth-form" style="display: none;">
+                <h3>Reset Password</h3>
+                <p class="form-description">Enter your email and we'll send you a reset link.</p>
+                <div class="form-group">
+                    <label for="forgot-email">Email</label>
+                    <input type="email" id="forgot-email" name="email" required placeholder="your@email.com" autocomplete="email">
+                </div>
+                <button type="submit" class="btn btn-primary btn-full">Send Reset Link</button>
+                <p class="auth-link">
+                    <a href="#" onclick="switchAuthTab('login'); return false;">Back to login</a>
+                </p>
+            </form>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/choices.js@10.2.0/public/assets/scripts/choices.min.js"></script>
     <script src="/static/js/app.js"></script>
 </body>
 </html>
