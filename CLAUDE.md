@@ -32,10 +32,21 @@ python manage.py add-alert alice@example.com watchexchange "Seiko SARB"
 
 ### Running the Poller
 ```bash
-# One-time execution
+# One-time execution (with distributed lock)
 python poller.py
 
-# Production: run via cron (see run_poller.sh for example wrapper)
+# Continuous mode (runs every 15 minutes by default)
+python poller.py --loop
+
+# Continuous mode with custom interval (e.g., 5 minutes)
+python poller.py --loop --interval 300
+
+# Skip lock for local debugging only
+python poller.py --skip-lock
+
+# Production: run via cron OR use --loop mode
+# Cron example: */15 * * * * /path/to/run_poller.sh
+# Railway/container: python poller.py --loop
 ```
 
 ### Environment Setup
@@ -50,6 +61,8 @@ pip install -r requirements.txt
 # - FETCH_LIMIT (default: 100)
 # - MAX_RETRIES (default: 3) - Number of retry attempts for API calls
 # - RETRY_DELAY (default: 5) - Initial delay in seconds for exponential backoff
+# - POLL_INTERVAL (default: 900) - Polling interval in seconds for --loop mode
+# - LOCK_FILE_PATH (default: /tmp/poller.lock) - File lock path for SQLite mode
 ```
 
 ### Testing

@@ -1,7 +1,8 @@
 # poller.py
-import os, re, uuid, time
+import os, re, uuid, time, sys, fcntl, argparse
 from datetime import datetime, timezone
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Optional
+from contextlib import contextmanager
 
 from db import init_db, User, Alert, Delivery, Checkpoint
 from emailer import send_email
@@ -10,11 +11,120 @@ from logger import setup_logger
 from praw.exceptions import RedditAPIException, PRAWException
 from prawcore.exceptions import ResponseException, RequestException
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy import text
 
 logger = setup_logger("poller")
 FETCH_LIMIT = int(os.getenv("FETCH_LIMIT", "100"))
 MAX_RETRIES = int(os.getenv("MAX_RETRIES", "3"))
 RETRY_DELAY = int(os.getenv("RETRY_DELAY", "5"))  # seconds
+POLL_INTERVAL = int(os.getenv("POLL_INTERVAL", "900"))  # 15 minutes default
+LOCK_FILE_PATH = os.getenv("LOCK_FILE_PATH", "/tmp/poller.lock")
+
+
+class PollerLock:
+    """Distributed lock to prevent concurrent poller execution.
+
+    Uses PostgreSQL advisory locks when available, falls back to file-based
+    locking for SQLite (local development).
+    """
+
+    def __init__(self, session):
+        self.session = session
+        self.lock_file = None
+        self.is_postgres = self._is_postgres()
+        self.lock_acquired = False
+
+    def _is_postgres(self) -> bool:
+        """Check if we're using PostgreSQL."""
+        try:
+            dialect = self.session.bind.dialect.name
+            return dialect == "postgresql"
+        except Exception:
+            return False
+
+    def acquire(self) -> bool:
+        """Attempt to acquire the lock. Returns True if successful."""
+        if self.is_postgres:
+            return self._acquire_postgres_lock()
+        else:
+            return self._acquire_file_lock()
+
+    def release(self):
+        """Release the lock."""
+        if self.lock_acquired:
+            if self.is_postgres:
+                self._release_postgres_lock()
+            else:
+                self._release_file_lock()
+            self.lock_acquired = False
+
+    def _acquire_postgres_lock(self) -> bool:
+        """Use PostgreSQL advisory lock (session-level, auto-releases on disconnect)."""
+        try:
+            # hashtext creates a consistent integer from string for advisory lock
+            result = self.session.execute(
+                text("SELECT pg_try_advisory_lock(hashtext('poller_main_lock'))")
+            )
+            acquired = result.scalar()
+            if acquired:
+                self.lock_acquired = True
+                logger.debug("Acquired PostgreSQL advisory lock")
+            return acquired
+        except Exception as e:
+            logger.error(f"Failed to acquire PostgreSQL lock: {e}")
+            return False
+
+    def _release_postgres_lock(self):
+        """Release PostgreSQL advisory lock."""
+        try:
+            self.session.execute(
+                text("SELECT pg_advisory_unlock(hashtext('poller_main_lock'))")
+            )
+            logger.debug("Released PostgreSQL advisory lock")
+        except Exception as e:
+            logger.error(f"Failed to release PostgreSQL lock: {e}")
+
+    def _acquire_file_lock(self) -> bool:
+        """Use file-based locking for SQLite/local development."""
+        try:
+            self.lock_file = open(LOCK_FILE_PATH, "w")
+            fcntl.flock(self.lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            self.lock_acquired = True
+            logger.debug(f"Acquired file lock: {LOCK_FILE_PATH}")
+            return True
+        except BlockingIOError:
+            logger.warning("Another poller instance is running (file lock held)")
+            if self.lock_file:
+                self.lock_file.close()
+                self.lock_file = None
+            return False
+        except Exception as e:
+            logger.error(f"Failed to acquire file lock: {e}")
+            return False
+
+    def _release_file_lock(self):
+        """Release file-based lock."""
+        try:
+            if self.lock_file:
+                fcntl.flock(self.lock_file, fcntl.LOCK_UN)
+                self.lock_file.close()
+                self.lock_file = None
+                logger.debug("Released file lock")
+        except Exception as e:
+            logger.error(f"Failed to release file lock: {e}")
+
+
+@contextmanager
+def poller_lock(session):
+    """Context manager for acquiring and releasing the poller lock."""
+    lock = PollerLock(session)
+    try:
+        if lock.acquire():
+            yield True
+        else:
+            yield False
+    finally:
+        lock.release()
 
 def _key_regex(kw: str):
     return re.compile(re.escape(kw), re.IGNORECASE)
@@ -188,6 +298,73 @@ def run_once():
         session.close()
         logger.debug("Database session closed")
 
+def main():
+    """Main entry point with argument parsing and locking."""
+    parser = argparse.ArgumentParser(description="Reddit Alert Poller")
+    parser.add_argument(
+        "--loop",
+        action="store_true",
+        help=f"Run continuously with {POLL_INTERVAL}s interval (default: run once)"
+    )
+    parser.add_argument(
+        "--interval",
+        type=int,
+        default=POLL_INTERVAL,
+        help=f"Polling interval in seconds when using --loop (default: {POLL_INTERVAL})"
+    )
+    parser.add_argument(
+        "--skip-lock",
+        action="store_true",
+        help="Skip distributed lock (use only for debugging)"
+    )
+    args = parser.parse_args()
+
+    # Initialize database to get session for locking
+    Session = init_db()
+    session = Session()
+
+    try:
+        if args.skip_lock:
+            logger.warning("Running without distributed lock (--skip-lock)")
+            if args.loop:
+                _run_loop(args.interval)
+            else:
+                result = run_once()
+                print(result)
+            return
+
+        # Acquire lock before running
+        with poller_lock(session) as acquired:
+            if not acquired:
+                logger.warning("Could not acquire lock - another instance is running. Exiting.")
+                sys.exit(0)
+
+            logger.info("Lock acquired, starting poller")
+
+            if args.loop:
+                _run_loop(args.interval)
+            else:
+                result = run_once()
+                print(result)
+
+    finally:
+        session.close()
+
+
+def _run_loop(interval: int):
+    """Run the poller continuously with the specified interval."""
+    logger.info(f"Starting continuous polling with {interval}s interval")
+
+    while True:
+        try:
+            result = run_once()
+            logger.info(f"Poll complete: {result}")
+        except Exception as e:
+            logger.error(f"Error in polling loop: {e}", exc_info=True)
+
+        logger.info(f"Sleeping for {interval} seconds...")
+        time.sleep(interval)
+
+
 if __name__ == "__main__":
-    result = run_once()
-    print(result)
+    main()
